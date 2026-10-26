@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "UrbanSafe",
+    "slug": "urbansafe-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "jsEngine": "jsc",
+    "icon": "./src/images/logo.png",
+    "splash": {
+      "image": "./src/images/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "UrbanSafe necesita tu ubicación para mostrarte los paraderos cercanos."
+      }
+    },
+    "android": {
+      "package": "com.urbansafe.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./src/images/logo.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "UrbanSafe necesita tu ubicación para buscar paraderos cercanos."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "94cf9947-1ec9-4536-8515-c3cb73e41ac4"
+      }
+    }
+  }
+}
