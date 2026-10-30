@@ -1,15 +1,31 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { TripMatchResponse, MatchedRoute, ForecastResponse } from '../types';
+import { TripMatchResponse, MatchedRoute } from '../types';
+import {
+  etiquetaClase, etiquetaRecomendacion, colorRecomendacion, textoOcupacion, textoEspera, formatoHora,
+} from '../utils/aforo';
 
 interface TripSummaryCardProps {
   tripData: TripMatchResponse;
   selectedRoute: MatchedRoute;
-  forecastData: any; // Puede contener .current y .predictions (o .forecast)
+  forecastData: any; // { current, predictions, referencia } o { sinDatos: true }
   loadingForecast: boolean;
   onClose: () => void;
 }
+
+const nombreServicio = (route: MatchedRoute): string => {
+  switch (route.system) {
+    case 'metropolitano':
+      return 'Metropolitano';
+    case 'metro_l1':
+      return 'Metro Línea 1';
+    case 'alimentadores':
+      return `Alimentador ${route.route_code}`;
+    default:
+      return `Corredor ${route.route_code}`;
+  }
+};
 
 export default function TripSummaryCard({
   tripData,
@@ -20,17 +36,6 @@ export default function TripSummaryCard({
 }: TripSummaryCardProps) {
   const totalWalk = Math.round(selectedRoute.origin_walk_m + selectedRoute.dest_walk_m);
 
-  // Función segura para formatear la fecha evitando el error de las 12 p.m. por espacio en blanco
-  const formatTime = (dateString: string) => {
-    if (!dateString) return '';
-    const safeStr = dateString.includes(' ') ? dateString.replace(' ', 'T') : dateString;
-    const date = new Date(safeStr);
-    return isNaN(date.getTime()) 
-      ? dateString 
-      : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  // Extraer correctamente las listas sin importar si vienen como predictions o forecast
   const currentPrediction = forecastData?.current;
   const predictionsList = forecastData?.predictions || forecastData?.forecast || [];
 
@@ -53,16 +58,14 @@ export default function TripSummaryCard({
       <View className="flex-row items-center justify-between bg-blue-50/60 rounded-2xl p-3.5 my-3 border border-blue-100">
         <View className="flex-row items-center flex-1">
           <View className="w-10 h-10 rounded-xl bg-blue-600 items-center justify-center mr-3 shadow-sm">
-            <Ionicons 
-              name={selectedRoute.system === 'metropolitano' ? 'subway' : 'bus'} 
-              size={20} 
-              color="#ffffff" 
+            <Ionicons
+              name={selectedRoute.system === 'metropolitano' || selectedRoute.system === 'metro_l1' ? 'subway' : 'bus'}
+              size={20}
+              color="#ffffff"
             />
           </View>
           <View className="flex-1">
-            <Text className="text-gray-800 font-bold text-sm">
-              {selectedRoute.system === 'metropolitano' ? 'Metropolitano' : `Corredor ${selectedRoute.route_code}`}
-            </Text>
+            <Text className="text-gray-800 font-bold text-sm">{nombreServicio(selectedRoute)}</Text>
             <Text className="text-gray-500 text-xs mt-0.5">
               Aborda en <Text className="font-bold text-gray-700">{selectedRoute.boarding_station}</Text>
             </Text>
@@ -75,6 +78,12 @@ export default function TripSummaryCard({
         </View>
       </View>
 
+      {tripData.recomendacion_viaje?.mensaje ? (
+        <View className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 mb-2">
+          <Text className="text-emerald-800 text-[11px] font-medium">{tripData.recomendacion_viaje.mensaje}</Text>
+        </View>
+      ) : null}
+
       {/* Detalles de bajada */}
       <View className="flex-row items-center justify-between px-1 mb-3">
         <Text className="text-gray-500 text-xs">
@@ -83,62 +92,77 @@ export default function TripSummaryCard({
         <Text className="text-gray-400 text-xs">Destino a {Math.round(selectedRoute.dest_walk_m)}m</Text>
       </View>
 
-      {/* Sección de Predicciones del Paradero (Actual + Forecast) */}
+      {/* Ocupación estimada en el paradero de subida (en el sentido del viaje) */}
       <View className="pt-3 border-t border-gray-100">
-        <Text className="text-xs font-bold text-gray-700 mb-2">Predicciones en {selectedRoute.boarding_station}:</Text>
-        
+        <Text className="text-xs font-bold text-gray-700 mb-2">Aforo en {selectedRoute.boarding_station}:</Text>
+
         {loadingForecast ? (
           <ActivityIndicator size="small" color="#2563eb" style={{ paddingVertical: 12 }} />
+        ) : forecastData?.sinDatos ? (
+          <Text className="text-gray-400 text-xs text-center py-2">
+            Sin predicción: este paradero no tiene datos de validaciones ATU propios.
+          </Text>
         ) : (
           <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 220 }}>
-            {/* 1. TARJETA DESTACADA: ESTADO ACTUAL EN TIEMPO REAL */}
+            {/* 1. ESTADO ACTUAL */}
             {currentPrediction && (
               <View className="bg-blue-50/80 border border-blue-300 rounded-2xl p-3 mb-3">
                 <View className="flex-row justify-between items-center mb-1.5">
                   <View className="flex-row items-center">
                     <View className="w-2 h-2 rounded-full bg-emerald-500 mr-1.5" />
                     <Text className="text-[10px] font-extrabold text-blue-800 uppercase">
-                      Momento Actual ({formatTime(currentPrediction.datetime)})
+                      Ahora ({formatoHora(currentPrediction.datetime)})
                     </Text>
                   </View>
-                  <View className={`px-2 py-0.5 rounded-full ${currentPrediction.recommendation === 'abordar' ? 'bg-green-100' : 'bg-amber-100'}`}>
-                    <Text className={`text-[8px] font-bold ${currentPrediction.recommendation === 'abordar' ? 'text-green-700' : 'text-amber-700'}`}>
-                      {currentPrediction.recommendation.toUpperCase()}
+                  <View
+                    className="px-2 py-0.5 rounded-full"
+                    style={{ backgroundColor: colorRecomendacion(currentPrediction.recommendation).bg }}
+                  >
+                    <Text
+                      className="text-[8px] font-bold"
+                      style={{ color: colorRecomendacion(currentPrediction.recommendation).fg }}
+                    >
+                      {etiquetaRecomendacion(currentPrediction.recommendation).toUpperCase()}
                     </Text>
                   </View>
                 </View>
                 <View className="flex-row justify-between items-center">
-                  <View>
-                    <Text className="text-xs font-bold text-gray-900">{currentPrediction.class}</Text>
+                  <View className="flex-1">
+                    <Text className="text-xs font-bold text-gray-900">{etiquetaClase(currentPrediction.class)}</Text>
+                    {currentPrediction.sentido ? (
+                      <Text className="text-[10px] text-gray-500">{currentPrediction.sentido}</Text>
+                    ) : null}
                     <Text className="text-[11px] text-gray-600 mt-0.5">
-                      Próximo bus: <Text className="text-blue-600 font-bold">{currentPrediction.eta_min} min</Text>
+                      Espera estimada: <Text className="text-blue-600 font-bold">{textoEspera(currentPrediction)}</Text>
                     </Text>
                   </View>
                   <View className="items-end">
-                    <Text className="text-[9px] text-gray-400">Aforo aprox.</Text>
-                    <Text className="text-xs font-black text-gray-800">
-                      {Math.round((currentPrediction.crowding || 0) * 100)}%
-                    </Text>
+                    <Text className="text-[9px] text-gray-400">Ocupación</Text>
+                    <Text className="text-xs font-black text-gray-800">{textoOcupacion(currentPrediction.crowding)}</Text>
+                    {currentPrediction.pasajeros_por_tren != null ? (
+                      <Text className="text-[9px] text-gray-400">≈ {currentPrediction.pasajeros_por_tren} a bordo</Text>
+                    ) : null}
                   </View>
                 </View>
               </View>
             )}
 
-            {/* 2. CARRUSEL DE PRONÓSTICOS FUTUROS */}
+            {/* 2. PRONÓSTICO DEL DÍA */}
             {predictionsList.length > 0 ? (
               <View>
-                <Text className="text-[11px] font-bold text-gray-400 mb-1.5">Predicciones del día:</Text>
+                <Text className="text-[11px] font-bold text-gray-400 mb-1.5">Pronóstico del día:</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   {predictionsList.map((item: any, index: number) => (
                     <View key={index} className="bg-gray-50 border border-gray-200 rounded-xl p-2.5 mr-2.5 w-24 items-center">
-                      <Text className="text-[10px] font-bold text-gray-400">
-                        {formatTime(item.datetime)}
-                      </Text>
-                      <Text className="text-xs font-bold text-gray-800 mt-1" numberOfLines={1}>{item.class}</Text>
-                      <Text className="text-xs font-extrabold text-blue-600 mt-0.5">ETA: {item.eta_min}m</Text>
-                      <View className={`mt-1.5 px-2 py-0.5 rounded-full ${item.recommendation === 'abordar' ? 'bg-green-100' : 'bg-amber-100'}`}>
-                        <Text className={`text-[8px] font-bold ${item.recommendation === 'abordar' ? 'text-green-700' : 'text-amber-700'}`}>
-                          {item.recommendation.toUpperCase()}
+                      <Text className="text-[10px] font-bold text-gray-400">{formatoHora(item.datetime)}</Text>
+                      <Text className="text-xs font-bold text-gray-800 mt-1" numberOfLines={1}>{etiquetaClase(item.class)}</Text>
+                      <Text className="text-xs font-extrabold text-blue-600 mt-0.5">{textoOcupacion(item.crowding)}</Text>
+                      <View
+                        className="mt-1.5 px-2 py-0.5 rounded-full"
+                        style={{ backgroundColor: colorRecomendacion(item.recommendation).bg }}
+                      >
+                        <Text className="text-[8px] font-bold" style={{ color: colorRecomendacion(item.recommendation).fg }}>
+                          {etiquetaRecomendacion(item.recommendation).toUpperCase()}
                         </Text>
                       </View>
                     </View>
@@ -146,7 +170,13 @@ export default function TripSummaryCard({
                 </ScrollView>
               </View>
             ) : !currentPrediction ? (
-              <Text className="text-gray-400 text-xs text-center py-2">No hay predicciones en tiempo real para este paradero.</Text>
+              <Text className="text-gray-400 text-xs text-center py-2">No hay predicciones para este paradero.</Text>
+            ) : null}
+
+            {forecastData?.referencia ? (
+              <Text className="text-[9px] text-gray-400 mt-2">
+                Estimado con datos ATU del {forecastData.referencia.fecha_referencia_datos} (día equivalente)
+              </Text>
             ) : null}
           </ScrollView>
         )}

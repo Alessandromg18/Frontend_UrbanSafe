@@ -1,5 +1,5 @@
 import { api } from './client';
-import { System, Station, ForecastResponse } from '../types';
+import { System, Station, StationPrediction } from '../types';
 import { AutocompleteSuggestion, TripMatchResponse } from '../types';
 
 // 1. Mapeador para llamadas a endpoints de Backend (p. ej. GET /api/stations?system=...)
@@ -48,84 +48,6 @@ export const mapSystemToBackendModel = (system: string): string => {
   }
 };
 
-// 3. Mapeador de paraderos de la BD a las series reales del modelo de predicción
-export const mapStationToModelSeries = (system: string, stationName: string, avenueOrRoute: string = ''): string => {
-  const mappedSys = mapSystemToBackendModel(system);
-  const name = stationName ? stationName.toLowerCase() : '';
-  const route = avenueOrRoute ? avenueOrRoute.toLowerCase() : '';
-
-  // 1. Mapeo para Alimentadores
-  if (mappedSys === 'alimentador') {
-    if (name.includes('tortugas') || name.includes('espanola') || name.includes('lorenzo')) return 'Naranjal';
-    if (name.includes('camelias') || name.includes('plaza vea')) return 'Universitaria'; 
-    if (name.includes('machupicchu')) return 'Carabayllo';
-    
-    const validAlimentador = [
-      "Alisos", "Antúnez de Mayolo", "Belaunde", "Bertello", "Carabayllo",
-      "Cedros de Villa", "Collique", "Ensenada", "Izaguirre", "Las Américas",
-      "Los Olivos", "Los Próceres", "Milagro de Jesús", "Naranjal", "Payet",
-      "Puente Piedra", "Puno", "San Juan de Dios", "Tahuantinsuyo",
-      "Torre Blanca", "Trapiche", "Universitaria", "Villa El Salvador"
-    ];
-    const found = validAlimentador.find(s => name.includes(s.toLowerCase()) || route.includes(s.toLowerCase()));
-    if (found) return found;
-    return 'Naranjal';
-  }
-
-  // 2. Mapeo para Corredores (Lee la ruta de la avenida/código o del nombre)
-  if (mappedSys === 'corredor') {
-    const validCorredor = ["201", "204", "206", "209", "301", "305", "370", "371", "404", "405", "406", "412"];
-    
-    // Busca primero en la ruta/avenida (ej. "401")
-    const foundRoute = validCorredor.find(s => route === s.toLowerCase() || route.includes(s.toLowerCase()));
-    if (foundRoute) return foundRoute;
-
-    // Si no está ahí, busca en el nombre
-    const foundName = validCorredor.find(s => name.includes(s.toLowerCase()));
-    if (foundName) return foundName;
-    
-    if (name.includes('chipoco') || name.includes('acacias') || name.includes('paz') || name.includes('balboa') || name.includes('butters') || name.includes('pavos')) {
-      return '301';
-    }
-    
-    return '301'; // Fallback por defecto
-  }
-
-  // 3. Mapeo para Metro Línea 1
-  if (mappedSys === 'metro_l1') {
-    const validMetro = [
-      "Angamos", "Atocongo", "Ayacucho", "Bayóvar", "Cabitos", "Caja de Agua", 
-      "El Ángel", "Gamarra", "Jorge Chavez", "La Cultura", "Los Jardines", 
-      "Los Postes", "Maria Auxiliadora", "Miguel Grau", "Nicolas Arriola", 
-      "Parque Industrial", "Piramides del Sol", "Presbitero Maestro", "Pumacahua", 
-      "San Borja Sur", "San Carlos", "San Juan", "San Martin", "Santa Rosa", 
-      "Villa El Salvador", "Villa Maria"
-    ];
-    const found = validMetro.find(s => name.includes(s.toLowerCase()));
-    if (found) return found;
-    return 'Angamos';
-  }
-
-  // 4. Mapeo para Troncal (Metropolitano)
-  if (mappedSys === 'troncal') {
-    const validTroncal = [
-      "2 de Mayo", "22 De Agosto", "28 de Julio", "Andres Belaunde", "Andrés Reyes", 
-      "Angamos", "Aramburu", "Balta", "Benavides", "Bulevar", "Canadá", 
-      "Canaval y Moreyra", "Caqueta", "Chimpu Ocllo", "Colmena", "Domingo Orué", 
-      "El Milagro", "Escuela Militar", "España", "Estacion Central", "Estadio Nacional", 
-      "Honorio Delgado", "Independencia", "Izaguirre", "Javier Prado", "Jiron de la Unión", 
-      "Los Incas", "Los jazmines", "Matellini", "México", "Naranjal", "Naranjal Alimentador", 
-      "Pacifico", "Parque del Trabajo", "Plaza de Flores", "Quilca", "Ramon Castilla", 
-      "Ricardo Palma", "Rosario de Villa", "Tacna", "Terán", "Tomas Valle", "Uni", "Union", "Universidad"
-    ];
-    const found = validTroncal.find(s => name.includes(s.toLowerCase()));
-    if (found) return found;
-    return 'Estacion Central';
-  }
-
-  return stationName;
-};
-
 export const getSystems = async (): Promise<System[]> => {
   const res = await api.get('/systems');
   return res.data;
@@ -159,14 +81,36 @@ export const getRouteGeoJson = async (systemName: string, routeCode?: string | n
   return res.data;
 };
 
-export const getForecast = async (system: string, stationName: string, dia: string, avenida: string = ''): Promise<ForecastResponse> => {
-  const modelSys = mapSystemToBackendModel(system); // Envía 'alimentador', 'corredor', etc.
-  const finalSeries = mapStationToModelSeries(system, stationName, avenida);
-
-  const res = await api.get(`/predictions/${modelSys}/${encodeURIComponent(finalSeries)}/forecast`, {
-    params: { dia, hours: 24, modo: 'ligero' }
-  });
-  return res.data;
+/**
+ * Predicción de una estación o paradero: estado actual + pronóstico de las 24 h en UNA llamada.
+ *
+ * - El backend resuelve qué serie del modelo corresponde al paradero (ya no hay reglas de texto
+ *   ni series "por defecto"). Si el paradero no tiene datos ATU propios responde 404 y aquí se
+ *   devuelve null: la app muestra "sin predicción" en vez de la de otra estación.
+ * - No se envían fecha ni hora: el backend usa la fecha y la hora de Lima.
+ * - `haciaId` (estación de bajada) fija el sentido de viaje en Metro L1 y Metropolitano; en
+ *   corredores el código del paradero ya trae el sentido. `ruta` desambigua paraderos de
+ *   corredor compartidos por varias rutas.
+ */
+export const getStationPrediction = async (
+  station: Station,
+  haciaId?: string
+): Promise<StationPrediction | null> => {
+  if (station.model_series === null) return null;   // el backend ya sabe que no hay datos
+  const params: Record<string, string> = {};
+  if (haciaId) params.hacia_id = haciaId;
+  const ruta = station.raw_properties?.ruta;
+  if (station.system === 'corredores' && ruta) params.ruta = String(ruta);
+  try {
+    const res = await api.get(`/predictions/estacion/${encodeURIComponent(station.id)}`, {
+      params,
+      timeout: 60000, // el primer pedido puede despertar la instancia de Render
+    });
+    return res.data;
+  } catch (error: any) {
+    if (error?.response?.status === 404) return null;
+    throw error;
+  }
 };
 
 // Extrae el código o servicio de la ruta según el tipo de sistema del paradero
@@ -220,50 +164,4 @@ export const matchTrip = async (
 
   const res = await api.get('/geo/match-trip', { params });
   return res.data;
-};
-
-
-export const getStationPredictionsCombined = async (system: string, stationName: string, avenueOrRoute: string = '') => {
-  const modelSys = mapSystemToBackendModel(system);
-  const finalSeries = mapStationToModelSeries(system, stationName, avenueOrRoute);
-
-  const now = new Date();
-  const currentHour = now.getHours();
-  const today = now.toISOString().split('T')[0]; // Formato YYYY-MM-DD
-
-  try {
-    // Consultamos el estado actual y el forecast completo del día (pedimos 24 horas) en paralelo
-    const [currentRes, forecastRes] = await Promise.all([
-      api.get(`/predictions/${modelSys}/${encodeURIComponent(finalSeries)}`, {
-        params: { dia: today, hour: currentHour, modo: 'ligero' }
-      }),
-      api.get(`/predictions/${modelSys}/${encodeURIComponent(finalSeries)}/forecast`, {
-        params: { dia: today, hours: 24, modo: 'ligero' } // 👈 CAMBIADO A 24 HORAS
-      })
-    ]);
-
-    // Estructuramos el item actual
-    const p = currentRes.data;
-    const currentPrediction = {
-      datetime: p.datetime,
-      value: p.prediction,
-      crowding: p.crowding.index,
-      class: p.crowding.class,
-      eta_min: p.eta.next,
-      eta2_min: p.eta.second,
-      recommendation: p.recomendacion,
-      isNow: true
-    };
-
-    // 👈 Devolvemos todo el array de predicciones del forecast sin recortarlo
-    const allPredictions = forecastRes.data.predictions || [];
-
-    return {
-      current: currentPrediction,
-      forecast: allPredictions
-    };
-  } catch (error) {
-    console.error('Error al obtener predicciones combinadas:', error);
-    throw error;
-  }
 };

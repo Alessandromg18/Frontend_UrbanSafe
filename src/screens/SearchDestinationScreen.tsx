@@ -3,6 +3,7 @@ import { View, Text, FlatList, ActivityIndicator, TouchableOpacity, SafeAreaView
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { matchTrip } from '../api/services';
+import { rutasOfrecibles, etiquetaClase, textoOcupacion } from '../utils/aforo';
 import { TripMatchResponse, MatchedRoute, AutocompleteSuggestion } from '../types';
 import SearchAutocomplete from '../components/SearchAutocomplete';
 
@@ -45,7 +46,7 @@ export default function SearchDestinationScreen({ navigation }: any) {
 
       setTripData(response);
 
-      if (!response.found_routes || response.found_routes.length === 0) {
+      if (rutasOfrecibles(response.found_routes).length === 0) {
         setErrorMessage('No se encontraron paraderos ni rutas directas a este destino dentro del radio.');
       }
     } catch (error) {
@@ -107,17 +108,23 @@ export default function SearchDestinationScreen({ navigation }: any) {
           </View>
           <View className="bg-blue-600/20 px-3 py-1 rounded-full border border-blue-500/30">
             <Text className="text-blue-400 text-[11px] font-bold">
-              {tripData.found_routes.length} {tripData.found_routes.length === 1 ? 'opción' : 'opciones'}
+              {rutasOfrecibles(tripData.found_routes).length} {rutasOfrecibles(tripData.found_routes).length === 1 ? 'opción' : 'opciones'}
             </Text>
           </View>
         </View>
       )}
 
       {/* LISTADO COMPLETO DE RUTAS Y PARADEROS (Añadido mt-2 para separar del destino seleccionado) */}
+      {!loading && tripData?.recomendacion_viaje?.mensaje ? (
+        <View className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-3 mb-2">
+          <Text className="text-emerald-300 text-xs font-medium">{tripData.recomendacion_viaje.mensaje}</Text>
+        </View>
+      ) : null}
+
       {!loading && tripData && tripData.found_routes && (
         <View style={{ flex: 1 }} className="mt-2">
           <FlatList
-            data={tripData.found_routes}
+            data={rutasOfrecibles(tripData.found_routes)}
             keyExtractor={(item, index) => `${item.boarding_id}-${item.route_code}-${index}`}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 110 }} // Espacio suficiente para no chocar con el navbar flotante
@@ -137,15 +144,15 @@ export default function SearchDestinationScreen({ navigation }: any) {
                     });
                   }}
                   className={`rounded-2xl p-4 mb-3 border ${
-                    isBestOption 
-                      ? 'bg-slate-800 border-blue-500/80 shadow-lg' 
+                    isBestOption
+                      ? 'bg-slate-800 border-blue-500/80 shadow-lg'
                       : 'bg-slate-800/80 border-slate-700/70'
                   }`}
                 >
                   {/* Badge de Mejor Opción */}
                   {isBestOption && (
                     <View className="bg-blue-600 self-start px-2.5 py-0.5 rounded-full mb-2">
-                      <Text className="text-white text-[10px] font-bold">🌟 Menor caminata recomendada</Text>
+                      <Text className="text-white text-[10px] font-bold">🌟 Recomendada: menor tiempo total (caminata + espera + aforo)</Text>
                     </View>
                   )}
 
@@ -190,6 +197,15 @@ export default function SearchDestinationScreen({ navigation }: any) {
                       </Text>
                     </View>
                   </View>
+
+                  {/* Aforo y espera pronosticados para la hora actual en el sentido del viaje */}
+                  {item.aforo?.clase ? (
+                    <Text className="text-slate-300 text-[11px] mt-2">
+                      Aforo: <Text className="font-bold text-white">{etiquetaClase(item.aforo.clase as any)} ({textoOcupacion(item.aforo.ocupacion)})</Text>
+                      {item.espera_min != null ? <Text>  ·  Espera ~{item.espera_min} min</Text> : null}
+                      {item.viaje_min != null ? <Text>  ·  Viaje ~{Math.round(item.viaje_min)} min</Text> : null}
+                    </Text>
+                  ) : null}
 
                   {/* Pie de tarjeta con total y acceso rápido */}
                   <View className="flex-row items-center justify-between mt-3 pt-2 border-t border-slate-700/40">
