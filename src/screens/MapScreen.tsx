@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, ScrollView
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import { getStations, getRouteGeoJson, getRouteCodeFromStation, matchTrip, getStationPrediction } from '../api/services';
-import { etiquetaClase, etiquetaRecomendacion, colorRecomendacion, textoOcupacion, textoEspera, formatoHora } from '../utils/aforo';
+import { etiquetaClase, etiquetaRecomendacion, colorRecomendacion, textoOcupacion, textoEspera, formatoHora, rutasOfrecibles, textoProbabilidadLleno } from '../utils/aforo';
 import { Station, TripMatchResponse, MatchedRoute, AutocompleteSuggestion } from '../types';
 import SearchAutocomplete from '../components/SearchAutocomplete';
 import TripSummaryCard from '../components/TripSummaryCard';
@@ -98,8 +98,9 @@ export default function MapScreen({ route }: any) {
 
       setTripData(response);
 
-      if (response.found_routes && response.found_routes.length > 0) {
-        const bestRoute = response.found_routes[0];
+      const ofrecibles = rutasOfrecibles(response.found_routes);
+      if (ofrecibles.length > 0) {
+        const bestRoute = ofrecibles[0];   // la de menor costo generalizado
         setSelectedRoute(bestRoute);
 
         const allowedIds = [bestRoute.boarding_id, bestRoute.leaving_id];
@@ -441,6 +442,15 @@ export default function MapScreen({ route }: any) {
                         ) : null}
                       </View>
                     </View>
+                    {textoProbabilidadLleno(forecastData.current.probabilidad_no_subir) ? (
+                      <Text style={styles.currentEtaText}>{textoProbabilidadLleno(forecastData.current.probabilidad_no_subir)}</Text>
+                    ) : null}
+                    {forecastData.current.recommendation === 'cambiar_paradero' && forecastData.current.alternativa ? (
+                      <Text style={[styles.currentEtaText, { color: '#b91c1c', fontWeight: 'bold' }]}>
+                        Sube en {forecastData.current.alternativa.paradero} ({forecastData.current.alternativa.distancia_m} m antes):
+                        el bus viene más vacío y ahorras ~{Math.round(forecastData.current.alternativa.ahorro_min)} min
+                      </Text>
+                    ) : null}
                     {forecastData.referencia ? (
                       <Text style={styles.referenciaText}>
                         Estimado con datos ATU del {forecastData.referencia.fecha_referencia_datos} (día equivalente)

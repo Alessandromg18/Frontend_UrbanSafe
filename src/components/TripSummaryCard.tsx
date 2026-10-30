@@ -78,6 +78,12 @@ export default function TripSummaryCard({
         </View>
       </View>
 
+      {tripData.recomendacion_viaje?.mensaje ? (
+        <View className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 mb-2">
+          <Text className="text-emerald-800 text-[11px] font-medium">{tripData.recomendacion_viaje.mensaje}</Text>
+        </View>
+      ) : null}
+
       {/* Detalles de bajada */}
       <View className="flex-row items-center justify-between px-1 mb-3">
         <Text className="text-gray-500 text-xs">

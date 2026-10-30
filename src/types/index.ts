@@ -46,6 +46,10 @@ export interface PredictionItem {
   paradero?: string;                // corredores: nombre del paradero ATU
   intervalo_min?: number | null;
   por_sentido?: Record<'asc' | 'desc', OcupacionSentido>;
+  probabilidad_no_subir?: number | null;   // P(el vehículo que te toca llega lleno)
+  tiempo_viaje_min?: number | null;
+  multiplicador_hacinamiento?: number | null;
+  alternativa?: { paradero: string; codigo: string; distancia_m: number; ahorro_min: number; ocupacion: number } | null;
 }
 
 export interface ReferenciaDatos {
@@ -89,6 +93,23 @@ export interface MatchedRoute {
   leaving_station: string;
   leaving_id: string;
   dest_walk_m: number;
+  // Recomendación por costo generalizado (backend v1.3.0)
+  costo_generalizado_min?: number | null;   // minutos equivalentes: caminata + espera + aforo + viaje
+  caminata_min?: number;
+  espera_min?: number;
+  viaje_min?: number;
+  sentido_contrario?: boolean;              // paradero en la vereda equivocada: no se ofrece
+  sin_prediccion?: boolean;
+  aforo?: { clase?: string; ocupacion?: number | null; pasajeros_por_vehiculo?: number | null; sentido?: string | null };
+}
+
+export interface RecomendacionViaje {
+  criterio: string;
+  hora: number;
+  mejor: { boarding_station: string; route_code: string };
+  cambiar_paradero?: boolean;
+  ahorro_min?: number;
+  mensaje?: string;
 }
 
 // Respuesta completa del planificador
@@ -102,4 +123,5 @@ export interface TripMatchResponse {
     warning?: string;
   };
   found_routes: MatchedRoute[];
+  recomendacion_viaje?: RecomendacionViaje | null;
 }

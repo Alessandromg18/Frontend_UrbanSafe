@@ -1,4 +1,4 @@
-import { ClaseAforo, Recomendacion, PredictionItem } from '../types';
+import { ClaseAforo, Recomendacion, PredictionItem, MatchedRoute } from '../types';
 
 // Textos y colores únicos para mostrar el aforo v2 (ocupación real estimada con matriz O-D)
 
@@ -80,3 +80,11 @@ export const formatoHora = (fechaHora?: string): string => {
   const hhmm = fechaHora.includes(' ') ? fechaHora.split(' ')[1] : fechaHora.slice(11, 16);
   return hhmm.slice(0, 5);
 };
+
+// Rutas que se ofrecen al usuario: sin las de sentido contrario (la vereda equivocada). El backend
+// ya las entrega ordenadas por costo generalizado (caminata + espera + aforo + tiempo a bordo).
+export const rutasOfrecibles = (rutas: MatchedRoute[] = []): MatchedRoute[] =>
+  rutas.filter((r) => !r.sentido_contrario);
+
+export const textoProbabilidadLleno = (p?: number | null): string | null =>
+  p !== null && p !== undefined && p >= 0.2 ? `${Math.round(p * 100)}% de que llegue lleno` : null;
