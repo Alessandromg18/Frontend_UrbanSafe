@@ -2,7 +2,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, ScrollView } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
-import { getStations, getRouteGeoJson, getRouteCodeFromStation, matchTrip, getStationPredictionsCombined } from '../api/services';
+import { getStations, getRouteGeoJson, getRouteCodeFromStation, matchTrip, getStationPrediction } from '../api/services';
+import { etiquetaClase, etiquetaRecomendacion, colorRecomendacion, textoOcupacion, textoEspera, formatoHora } from '../utils/aforo';
 import { Station, TripMatchResponse, MatchedRoute, AutocompleteSuggestion } from '../types';
 import SearchAutocomplete from '../components/SearchAutocomplete';
 import TripSummaryCard from '../components/TripSummaryCard';
@@ -12,7 +13,7 @@ export default function MapScreen({ route }: any) {
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [stations, setStations] = useState<Station[]>([]);
   const [selectedStation, setSelectedStation] = useState<Station | null>(null);
-  
+
   // 👈 Estado unificado para la predicción actual y el forecast futuro
   const [forecastData, setForecastData] = useState<any>(null);  const [loadingForecast, setLoadingForecast] = useState(false);
   const [loadingMap, setLoadingMap] = useState(true);
@@ -70,7 +71,8 @@ export default function MapScreen({ route }: any) {
 
       const boardingStationObj = stations.find(s => s.id === incomingRoute.boarding_id);
       if (boardingStationObj) {
-        handleSelectStation(boardingStationObj, false);
+        // el destino (estación de bajada) fija el sentido de viaje del aforo
+        handleSelectStation(boardingStationObj, false, incomingRoute.leaving_id);
       }
     }
   }, [route.params, location, stations]);
@@ -114,7 +116,7 @@ export default function MapScreen({ route }: any) {
 
         const boardingStationObj = stations.find(s => s.id === bestRoute.boarding_id);
         if (boardingStationObj) {
-          handleSelectStation(boardingStationObj, false);
+          handleSelectStation(boardingStationObj, false, bestRoute.leaving_id);
         }
       } else {
         alert("No se encontró una ruta directa a ese destino dentro del radio de búsqueda.");
@@ -124,7 +126,7 @@ export default function MapScreen({ route }: any) {
     }
   };
 
-  const handleSelectStation = async (station: Station, openCard = true) => {
+  const handleSelectStation = async (station: Station, openCard = true, haciaId?: string) => {
     if (openCard) {
       setSelectedStation(station);
     }
@@ -166,12 +168,11 @@ export default function MapScreen({ route }: any) {
     }
 
     try {
-      // 👈 Usamos nuestra función combinada para obtener el estado actual + el forecast
-      const combinedData = await getStationPredictionsCombined(station.system, station.name, station.avenida || '');
-      setForecastData({
-      current: combinedData.current,
-      predictions: combinedData.forecast // Así TripSummaryCard lo lee perfecto en "predictions"
-      });
+      // Una sola llamada: estado actual + pronóstico del día (sentido según el destino, si hay)
+      const data = await getStationPrediction(station, haciaId);
+      setForecastData(data
+        ? { current: data.current, predictions: data.forecast, referencia: data.referencia }
+        : { sinDatos: true });
     } catch (error: any) {
       console.error("Error al obtener predicciones:", error);
     } finally {
@@ -191,14 +192,8 @@ export default function MapScreen({ route }: any) {
     setSelectedStation(null);
   };
 
-  const formatTime = (dateString: string) => {
-  if (!dateString) return '';
-  const safeStr = dateString.includes(' ') ? dateString.replace(' ', 'T') : dateString;
-  const date = new Date(safeStr);
-  return isNaN(date.getTime()) 
-    ? dateString 
-    : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
+  // El backend ya entrega la hora de Lima ("YYYY-MM-DD HH:MM"): se muestra tal cual
+  const formatTime = formatoHora;
 
   if (loadingMap || !location) {
     return (
@@ -228,7 +223,7 @@ export default function MapScreen({ route }: any) {
       <div id="map"></div>
       <script>
         var map = L.map('map').setView([${location.coords.latitude}, ${location.coords.longitude}], 15);
-        
+
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 19,
           attribution: '© OpenStreetMap'
@@ -271,10 +266,10 @@ export default function MapScreen({ route }: any) {
               html: '<div style="background-color: ' + color + '; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>',
               iconSize: [14, 14]
             });
-            
+
             var marker = L.marker(latLng, {icon: stationIcon});
             marker.bindPopup('<b>' + st.name + '</b><br>Sistema: ' + st.system);
-            
+
             marker.on('click', function() {
               window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'STATION_CLICK', data: st }));
             });
@@ -292,7 +287,7 @@ export default function MapScreen({ route }: any) {
         function handleNativeMessage(event) {
           try {
             var msg = JSON.parse(event.data);
-            
+
             if (msg.action === 'CLEAR_ROUTE') {
               if (routeLayer) {
                 map.removeLayer(routeLayer);
@@ -332,7 +327,7 @@ export default function MapScreen({ route }: any) {
               renderMarkers();
 
               var group = new L.featureGroup([
-                userMarker, 
+                userMarker,
                 destinationMarker,
                 ...markersGroup.getLayers()
               ]);
@@ -403,6 +398,10 @@ export default function MapScreen({ route }: any) {
           <View style={styles.forecastSection}>
             {loadingForecast ? (
               <ActivityIndicator size="small" color="#2563eb" style={{ paddingVertical: 16 }} />
+            ) : forecastData?.sinDatos ? (
+              <Text style={styles.noForecastText}>
+                Sin predicción: este paradero no tiene datos de validaciones ATU propios.
+              </Text>
             ) : forecastData ? (
               <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 280 }}>
                 {/* 1. TARJETA DESTACADA: ESTADO ACTUAL EN TIEMPO REAL */}
@@ -415,33 +414,38 @@ export default function MapScreen({ route }: any) {
                           Estado Actual ({formatTime(forecastData.current.datetime)})
                         </Text>
                       </View>
-                      <View style={[
-                        styles.badge, 
-                        { backgroundColor: forecastData.current.recommendation === 'abordar' ? '#dcfce7' : '#fef3c7' }
-                      ]}>
-                        <Text style={[
-                          styles.badgeText, 
-                          { color: forecastData.current.recommendation === 'abordar' ? '#15803d' : '#b45309' }
-                        ]}>
-                          {forecastData.current.recommendation.toUpperCase()}
+                      <View style={[styles.badge, { backgroundColor: colorRecomendacion(forecastData.current.recommendation).bg }]}>
+                        <Text style={[styles.badgeText, { color: colorRecomendacion(forecastData.current.recommendation).fg }]}>
+                          {etiquetaRecomendacion(forecastData.current.recommendation).toUpperCase()}
                         </Text>
                       </View>
                     </View>
 
                     <View style={styles.currentDetails}>
-                      <View>
-                        <Text style={styles.currentClassText}>{forecastData.current.class}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.currentClassText}>{etiquetaClase(forecastData.current.class)}</Text>
+                        {forecastData.current.sentido ? (
+                          <Text style={styles.currentEtaText}>{forecastData.current.sentido}</Text>
+                        ) : null}
                         <Text style={styles.currentEtaText}>
-                          Próximo bus: <Text style={{ color: '#2563eb', fontWeight: 'bold' }}>{forecastData.current.eta_min} min</Text>
+                          Espera estimada: <Text style={{ color: '#2563eb', fontWeight: 'bold' }}>{textoEspera(forecastData.current)}</Text>
                         </Text>
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={{ fontSize: 10, color: '#64748b' }}>Aforo aprox.</Text>
+                        <Text style={{ fontSize: 10, color: '#64748b' }}>Ocupación</Text>
                         <Text style={{ fontSize: 13, fontWeight: '900', color: '#0f172a' }}>
-                          {Math.round((forecastData.current.crowding || 0) * 100)}%
+                          {textoOcupacion(forecastData.current.crowding)}
                         </Text>
+                        {forecastData.current.pasajeros_por_tren != null ? (
+                          <Text style={{ fontSize: 9, color: '#64748b' }}>≈ {forecastData.current.pasajeros_por_tren} a bordo</Text>
+                        ) : null}
                       </View>
                     </View>
+                    {forecastData.referencia ? (
+                      <Text style={styles.referenciaText}>
+                        Estimado con datos ATU del {forecastData.referencia.fecha_referencia_datos} (día equivalente)
+                      </Text>
+                    ) : null}
                   </View>
                 )}
 
@@ -455,17 +459,11 @@ export default function MapScreen({ route }: any) {
                           <Text style={styles.forecastTime}>
                             {formatTime(item.datetime)}
                           </Text>
-                          <Text style={styles.forecastClass}>{item.class}</Text>
-                          <Text style={styles.forecastEta}>ETA: {item.eta_min} min</Text>
-                          <View style={[
-                            styles.badge, 
-                            { backgroundColor: item.recommendation === 'abordar' ? '#dcfce7' : '#fef3c7' }
-                          ]}>
-                            <Text style={[
-                              styles.badgeText, 
-                              { color: item.recommendation === 'abordar' ? '#15803d' : '#b45309' }
-                            ]}>
-                              {item.recommendation.toUpperCase()}
+                          <Text style={styles.forecastClass}>{etiquetaClase(item.class)}</Text>
+                          <Text style={styles.forecastEta}>{textoOcupacion(item.crowding)} · {textoEspera(item)}</Text>
+                          <View style={[styles.badge, { backgroundColor: colorRecomendacion(item.recommendation).bg }]}>
+                            <Text style={[styles.badgeText, { color: colorRecomendacion(item.recommendation).fg }]}>
+                              {etiquetaRecomendacion(item.recommendation).toUpperCase()}
                             </Text>
                           </View>
                         </View>
@@ -640,6 +638,11 @@ const styles = StyleSheet.create({
   badgeText: {
     fontSize: 9,
     fontWeight: 'bold',
+  },
+  referenciaText: {
+    fontSize: 9,
+    color: '#94a3b8',
+    marginTop: 6,
   },
   noForecastText: {
     fontSize: 12,
